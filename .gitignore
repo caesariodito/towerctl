@@ -1,0 +1,13 @@
+# build outputs
+bin/
+*.exe
+*.test
+*.out
+
+# towerctl local data
+.towerctl/
+
+# editor/temp
+*.swp
+*.swo
+.DS_Store
