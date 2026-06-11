@@ -1,0 +1,23 @@
+mcp_servers:
+  - name: tower
+    command: "towerctl serve-mcp"
+
+tools:
+  - name: get_active_project_context
+    description: "Get structured active-project context for agent planning. Use during morning planning or whenever user asks what to focus on."
+    mcp_tool: get_active_project_context
+  - name: get_project_list
+    description: "List projects, optionally filtered by status."
+    mcp_tool: get_project_list
+  - name: get_project_detail
+    description: "Get one project with latest snapshot."
+    mcp_tool: get_project_detail
+  - name: park_context
+    description: "Store a context snapshot and optionally refresh priority context."
+    mcp_tool: park_context
+  - name: start_park_day
+    description: "Return active projects that may need parking review. Hermes-agent drives the conversation."
+    mcp_tool: start_park_day
+  - name: park_day_update
+    description: "Store one parking answer or finalized parking payload."
+    mcp_tool: park_day_update
