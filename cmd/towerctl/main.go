@@ -383,17 +383,21 @@ func park(s Store, args []string) error {
 }
 
 type MCPRequest struct {
-	ID     int `json:"id"`
-	Params struct {
-		Name      string            `json:"name"`
-		Arguments map[string]string `json:"arguments"`
-	} `json:"params"`
+	ID     int             `json:"id,omitempty"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params,omitempty"`
+}
+
+type MCPToolCallParams struct {
+	Name      string            `json:"name"`
+	Arguments map[string]string `json:"arguments"`
 }
 
 type MCPResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      int         `json:"id"`
-	Result  interface{} `json:"result"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   interface{} `json:"error,omitempty"`
 }
 
 func serveMCP(s Store) error {
@@ -403,48 +407,107 @@ func serveMCP(s Store) error {
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
 			return err
 		}
+		if req.ID == 0 && strings.HasPrefix(req.Method, "notifications/") {
+			continue
+		}
+
 		var result interface{}
-		switch req.Params.Name {
-		case "get_active_project_context":
-			result = activeProjectContext(s)
-		case "get_project_list":
-			result = s.Projects
-		case "get_project_detail":
-			p, _ := findProject(s, req.Params.Arguments["project_id"])
-			result = ProjectWithLatestSnapshot{Project: p, LatestSnapshot: latestSnapshot(s, p.ID)}
-		case "park_context":
-			if err := park(s, mcpParkArgs(req.Params.Arguments)); err != nil {
+		switch req.Method {
+		case "initialize":
+			result = map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]interface{}{
+					"tools": map[string]interface{}{},
+				},
+				"serverInfo": map[string]string{"name": "towerctl", "version": "0.1.0"},
+			}
+		case "tools/list":
+			result = map[string]interface{}{"tools": mcpToolDescriptions()}
+		case "tools/call":
+			var params MCPToolCallParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
 				return err
 			}
-			var err error
-			s, err = loadStore()
+			toolResult, err := callMCPTool(params.Name, params.Arguments, &s)
 			if err != nil {
 				return err
 			}
-			result = map[string]string{"status": "ok"}
-		case "start_park_day":
-			result = activeProjectContext(s)
-		case "park_day_update":
-			args := []string{req.Params.Arguments["project_id"]}
-			if flag := parkingFieldFlag(req.Params.Arguments["field_name"]); flag != "" {
-				args = append(args, flag, req.Params.Arguments["value"])
+			if _, ok := toolResult.(map[string]string); ok {
+				result = toolResult
+			} else {
+				encoded, _ := json.Marshal(toolResult)
+				result = map[string]interface{}{
+					"content": []map[string]string{{"type": "text", "text": string(encoded)}},
+					"data":    toolResult,
+				}
 			}
-			if err := park(s, args); err != nil {
-				return err
-			}
-			var err error
-			s, err = loadStore()
-			if err != nil {
-				return err
-			}
-			result = map[string]string{"status": "ok"}
 		default:
-			result = map[string]string{"error": "unknown tool"}
+			result = map[string]string{"error": "unknown method"}
 		}
 		b, _ := json.Marshal(MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: result})
 		fmt.Println(string(b))
 	}
 	return scanner.Err()
+}
+
+func callMCPTool(name string, arguments map[string]string, s *Store) (interface{}, error) {
+	switch name {
+	case "get_active_project_context":
+		return activeProjectContext(*s), nil
+	case "get_project_list":
+		return s.Projects, nil
+	case "get_project_detail":
+		p, _ := findProject(*s, arguments["project_id"])
+		return ProjectWithLatestSnapshot{Project: p, LatestSnapshot: latestSnapshot(*s, p.ID)}, nil
+	case "park_context":
+		if err := park(*s, mcpParkArgs(arguments)); err != nil {
+			return nil, err
+		}
+		var err error
+		*s, err = loadStore()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
+	case "start_park_day":
+		return activeProjectContext(*s), nil
+	case "park_day_update":
+		args := []string{arguments["project_id"]}
+		if flag := parkingFieldFlag(arguments["field_name"]); flag != "" {
+			args = append(args, flag, arguments["value"])
+		}
+		if err := park(*s, args); err != nil {
+			return nil, err
+		}
+		var err error
+		*s, err = loadStore()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
+	default:
+		return map[string]string{"error": "unknown tool"}, nil
+	}
+}
+
+func mcpToolDescriptions() []map[string]interface{} {
+	tools := []struct{ name, desc string }{
+		{"get_active_project_context", "Get structured active-project context for agent planning."},
+		{"get_project_list", "List projects, optionally filtered by status."},
+		{"get_project_detail", "Get one project with latest snapshot."},
+		{"park_context", "Store a context snapshot and optionally refresh priority context."},
+		{"start_park_day", "Return active projects that may need parking review."},
+		{"park_day_update", "Store one parking answer or finalized parking payload."},
+	}
+	out := make([]map[string]interface{}, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, map[string]interface{}{
+			"name": tool.name,
+			"description": tool.desc,
+			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "additionalProperties": true},
+		})
+	}
+	return out
 }
 
 func printHelp() {
