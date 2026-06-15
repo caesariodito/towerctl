@@ -7,10 +7,18 @@
 ## Install from source
 
 ```bash
-go build -o towerctl ./cmd/towerctl
+git clone <repo-url>
+cd towerctl
+make test
+make build
+sudo cp bin/towerctl /usr/local/bin/towerctl
 ```
 
-Put the resulting `towerctl` binary on your `PATH`.
+Verify:
+
+```bash
+towerctl --help
+```
 
 ## Quick start
 
@@ -39,6 +47,8 @@ towerctl export --format markdown
 ## Hermes-agent integration
 
 Hermes-agent setup lives in [`docs/hermes-agent/README.md`](docs/hermes-agent/README.md).
+
+MCP over stdio means Hermes-agent should start `towerctl serve-mcp` itself. Do not run it as a background HTTP service.
 
 That guide covers:
 
